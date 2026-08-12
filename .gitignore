@@ -1,4 +1,5 @@
 .superpowers/
+.worktrees/
 work/
 outputs/
 .env
@@ -14,4 +15,3 @@ build/
 *.db
 *.sqlite
 *.sqlite3
-
