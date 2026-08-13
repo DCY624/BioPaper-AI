@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID Version="1">10000001</PMID>
+      <Article>
+        <Journal>
+          <JournalIssue>
+            <PubDate><Year>2024</Year></PubDate>
+          </JournalIssue>
+          <Title>Journal of Reproducible Biology</Title>
+        </Journal>
+        <ArticleTitle>Defined probiotic supports intestinal barrier function</ArticleTitle>
+        <Abstract>
+          <AbstractText Label="BACKGROUND">A database-backed abstract section.</AbstractText>
+          <AbstractText Label="RESULTS">Barrier markers increased in the model.</AbstractText>
+        </Abstract>
+        <AuthorList>
+          <Author><ForeName>Ada</ForeName><LastName>Test</LastName></Author>
+          <Author><CollectiveName>BioPaper Fixture Group</CollectiveName></Author>
+        </AuthorList>
+        <PublicationTypeList>
+          <PublicationType UI="D016428">Journal Article</PublicationType>
+        </PublicationTypeList>
+      </Article>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">10000001</ArticleId>
+        <ArticleId IdType="doi">10.1000/fixture.1</ArticleId>
+        <ArticleId IdType="pmc">PMC1000001</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID Version="1">10000002</PMID>
+      <Article>
+        <Journal>
+          <JournalIssue>
+            <PubDate><MedlineDate>2023 Winter</MedlineDate></PubDate>
+          </JournalIssue>
+          <Title>Open Biomedical Methods</Title>
+        </Journal>
+        <ArticleTitle>Mouse immune response to a defined bacterial strain</ArticleTitle>
+        <Abstract>
+          <AbstractText>A second structured abstract.</AbstractText>
+        </Abstract>
+        <AuthorList>
+          <Author><ForeName>Lin</ForeName><LastName>Example</LastName></Author>
+        </AuthorList>
+        <PublicationTypeList>
+          <PublicationType UI="D016428">Journal Article</PublicationType>
+          <PublicationType UI="D023361">Research Support</PublicationType>
+        </PublicationTypeList>
+      </Article>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">10000002</ArticleId>
+        <ArticleId IdType="doi">10.1000/fixture.2</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+</PubmedArticleSet>

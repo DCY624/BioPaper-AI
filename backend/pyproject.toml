@@ -28,8 +28,11 @@ biopaper = "biopaper_ai.cli:app"
 dev = [
   "mypy>=1.14,<2",
   "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<2",
   "pytest-cov>=6,<7",
+  "respx>=0.22,<1",
   "ruff>=0.9,<1",
+  "types-defusedxml>=0.7,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
