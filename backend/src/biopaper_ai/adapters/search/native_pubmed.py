@@ -10,6 +10,7 @@ from xml.etree.ElementTree import Element, ParseError
 
 import httpx
 from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 
 from biopaper_ai.adapters.search.pubmed_mapper import map_pubmed_record
 from biopaper_ai.application.ports.search_provider import (
@@ -87,9 +88,19 @@ class NativePubMedProvider:
 
             retrieved_at = self._now()
             digest = hashlib.sha256(fetch_response.content).hexdigest()
-            papers, failures = _parse_and_map_articles(
-                fetch_response.content, retrieved_at, digest
-            )
+            try:
+                papers, failures = _parse_and_map_articles(
+                    fetch_response.content, retrieved_at, digest, identifiers
+                )
+            except (ValueError, DefusedXmlException):
+                return _result(
+                    limit=limit,
+                    failure=ProviderFailure(
+                        source=SourceName.PUBMED,
+                        code=ProviderFailureCode.SOURCE_UNAVAILABLE,
+                        message="PubMed returned an invalid response",
+                    ),
+                )
             return ProviderResult(
                 papers=papers,
                 source_counts=(
@@ -171,18 +182,26 @@ def _parse_esearch(payload: object) -> tuple[str, ...]:
 
 
 def _parse_and_map_articles(
-    xml: bytes, retrieved_at: datetime, response_sha256: str
+    xml: bytes,
+    retrieved_at: datetime,
+    response_sha256: str,
+    requested_identifiers: tuple[str, ...],
 ) -> tuple[tuple[Paper, ...], tuple[ProviderFailure, ...]]:
     try:
         root = DefusedElementTree.fromstring(xml)
     except ParseError as error:
         raise ValueError("invalid PubMed XML") from error
+    if root.tag != "PubmedArticleSet":
+        raise ValueError("invalid PubMed XML root")
 
     papers: list[Paper] = []
     failures: list[ProviderFailure] = []
+    accounted_identifiers: set[str] = set()
     for article in root.findall("./PubmedArticle"):
         record = _article_record(article, response_sha256)
         record_id = record.get("pmid")
+        if isinstance(record_id, str):
+            accounted_identifiers.add(record_id)
         try:
             papers.append(map_pubmed_record(record, retrieved_at))
         except ValueError:
@@ -194,6 +213,18 @@ def _parse_and_map_articles(
                     record_id=record_id if isinstance(record_id, str) else None,
                 )
             )
+    for missing_id in requested_identifiers:
+        if missing_id not in accounted_identifiers:
+            failures.append(
+                ProviderFailure(
+                    source=SourceName.PUBMED,
+                    code=ProviderFailureCode.INVALID_RECORD,
+                    message="PubMed omitted a requested record",
+                    record_id=missing_id,
+                )
+            )
+    if not papers and failures:
+        raise ValueError("PubMed returned no complete requested records")
     return tuple(papers), tuple(failures)
 
 

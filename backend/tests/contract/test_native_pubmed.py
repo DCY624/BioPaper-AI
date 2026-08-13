@@ -12,7 +12,10 @@ from biopaper_ai.adapters.search.native_pubmed import (
     ESEARCH_URL,
     NativePubMedProvider,
 )
-from biopaper_ai.application.ports.search_provider import ProviderFailureCode
+from biopaper_ai.application.ports.search_provider import (
+    ProviderFailureCode,
+    ProviderResult,
+)
 from biopaper_ai.config import Settings
 from biopaper_ai.domain.provenance import SourceName
 from biopaper_ai.domain.search_plan import SearchFilters, SearchPlan, SynonymGroup
@@ -143,6 +146,55 @@ async def test_api_key_uses_post_body_and_ten_request_rate() -> None:
     assert search_form["api_key"] == [secret]
     assert fetch_form["api_key"] == [secret]
     assert ticker.delays == pytest.approx([0.1])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "xml",
+    [
+        b"<PubmedArticleSet><PubmedArticle>",
+        (
+            b'<!DOCTYPE PubmedArticleSet [<!ENTITY unsafe "content">]>'
+            b"<PubmedArticleSet>&unsafe;</PubmedArticleSet>"
+        ),
+        b"<UnexpectedRoot />",
+        b"<PubmedArticleSet />",
+    ],
+    ids=("truncated", "forbidden-entity", "wrong-root", "empty"),
+)
+async def test_invalid_or_empty_xml_becomes_sanitized_failure(xml: bytes) -> None:
+    result = await search_with_fetch_xml(xml)
+
+    assert result.papers == ()
+    assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
+    assert "xml" not in result.failures[0].message.casefold()
+
+
+@pytest.mark.asyncio
+async def test_missing_requested_pmid_is_visible_as_invalid_record() -> None:
+    fetch_fixture = (FIXTURES / "ncbi_efetch.xml").read_text()
+    second_start = fetch_fixture.rindex("  <PubmedArticle>")
+    incomplete_fixture = (fetch_fixture[:second_start] + "</PubmedArticleSet>").encode()
+
+    result = await search_with_fetch_xml(incomplete_fixture)
+
+    assert [paper.identifiers.pmid for paper in result.papers] == ["10000001"]
+    assert result.source_counts[0].returned == 1
+    assert result.failures[0].code is ProviderFailureCode.INVALID_RECORD
+    assert result.failures[0].record_id == "10000002"
+
+
+async def search_with_fetch_xml(xml: bytes) -> ProviderResult:
+    search_fixture = json.loads((FIXTURES / "ncbi_esearch.json").read_text())
+    with respx.mock(assert_all_called=True) as router:
+        router.get(ESEARCH_URL).mock(
+            return_value=httpx.Response(200, json=search_fixture)
+        )
+        router.post(EFETCH_URL).mock(return_value=httpx.Response(200, content=xml))
+        async with httpx.AsyncClient() as client:
+            return await NativePubMedProvider(
+                Settings(ncbi_email="maintainer@example.test"), client=client
+            ).search(search_plan(), limit=2)
 
 
 def search_plan() -> SearchPlan:
