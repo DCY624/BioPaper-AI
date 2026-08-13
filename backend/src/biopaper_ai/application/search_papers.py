@@ -52,17 +52,22 @@ class SearchPapers:
 
     async def execute(self, plan: SearchPlan, limit: int) -> SearchRun:
         """Execute a structured plan and retain all provider audit information."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
         executed_at = self._clock()
         provider_result = await self._provider.search(plan, limit)
         deduplicated = deduplicate_papers(provider_result.papers)
 
         ranked = _rank_papers(
             tuple(
-                paper
+                presentation
                 for paper in deduplicated.papers
-                if _merged_paper_matches_filters(
-                    paper, provider_result.papers, plan.filters
+                if (
+                    presentation := _filtered_presentation_paper(
+                        paper, provider_result.papers, plan.filters
+                    )
                 )
+                is not None
             ),
             plan,
         )
@@ -96,16 +101,28 @@ def paper_matches_filters(paper: Paper, filters: SearchFilters) -> bool:
     return True
 
 
-def _merged_paper_matches_filters(
+def _filtered_presentation_paper(
     canonical: Paper, originals: tuple[Paper, ...], filters: SearchFilters
-) -> bool:
+) -> Paper | None:
     canonical_provenance = set(canonical.provenance)
     safe_duplicates = tuple(
         paper
         for paper in originals
         if any(record in canonical_provenance for record in paper.provenance)
     )
-    return any(paper_matches_filters(paper, filters) for paper in safe_duplicates)
+    qualifying = next(
+        (paper for paper in safe_duplicates if paper_matches_filters(paper, filters)),
+        None,
+    )
+    if qualifying is None:
+        return None
+    return qualifying.model_copy(
+        update={
+            "abstract": canonical.abstract,
+            "identifiers": canonical.identifiers,
+            "provenance": canonical.provenance,
+        }
+    )
 
 
 def _searchable_metadata(paper: Paper) -> tuple[str, ...]:

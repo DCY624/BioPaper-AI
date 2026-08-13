@@ -230,6 +230,29 @@ async def test_filtering_a_doi_merge_uses_metadata_from_every_safe_duplicate() -
         *incomplete.provenance,
         *qualifying.provenance,
     )
+    assert run.hits[0].paper.title == qualifying.title
+    assert run.hits[0].paper.year == 2024
+    assert run.hits[0].paper.publication_types == ("Randomized Controlled Trial",)
+    assert run.hits[0].ranking_reasons[-1] == "publication year: 2024"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, -1])
+async def test_invalid_limit_is_rejected_before_clock_or_provider(limit: int) -> None:
+    provider = RecordingProvider(ProviderResult())
+    clock_called = False
+
+    def clock() -> datetime:
+        nonlocal clock_called
+        clock_called = True
+        return EXECUTED_AT
+
+    with pytest.raises(ValueError, match="limit"):
+        await SearchPapers(provider=provider, clock=clock).execute(search_plan(), limit)
+
+    assert provider.received_plan is None
+    assert provider.received_limit is None
+    assert clock_called is False
 
 
 @pytest.mark.asyncio
