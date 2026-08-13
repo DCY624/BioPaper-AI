@@ -2,7 +2,14 @@
 
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 
 class SynonymGroup(BaseModel):
@@ -11,6 +18,14 @@ class SynonymGroup(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     terms: tuple[Annotated[str, Field(min_length=1)], ...] = Field(min_length=1)
+
+    @field_validator("terms")
+    @classmethod
+    def normalizes_terms(cls, terms: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(term.strip() for term in terms)
+        if any(not term for term in normalized):
+            raise ValueError("synonym terms must not be blank")
+        return normalized
 
     @property
     def boolean_clause(self) -> str:
@@ -24,8 +39,8 @@ class SearchFilters(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    year_from: int | None = None
-    year_to: int | None = None
+    year_from: Annotated[StrictInt, Field(gt=0)] | None = None
+    year_to: Annotated[StrictInt, Field(gt=0)] | None = None
     species: tuple[str, ...] = ()
     study_types: tuple[str, ...] = ()
 
@@ -50,6 +65,13 @@ class SearchPlan(BaseModel):
     generator: Annotated[str, Field(min_length=1)]
     boolean_query: Annotated[str, Field(min_length=1)]
     warnings: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validates_local_boolean_query(self) -> "SearchPlan":
+        expected = " AND ".join(group.boolean_clause for group in self.groups)
+        if self.boolean_query != expected:
+            raise ValueError("boolean_query must be constructed locally from groups")
+        return self
 
     @classmethod
     def build(
@@ -82,7 +104,7 @@ def _quote_term(term: str) -> str:
     normalized = term.strip()
     if not normalized:
         raise ValueError("synonym terms must not be blank")
-    if any(character.isspace() for character in normalized):
-        escaped = normalized.replace('"', r'\"')
+    if '"' in normalized or any(character.isspace() for character in normalized):
+        escaped = normalized.replace('"', r"\"")
         return f'"{escaped}"'
     return normalized

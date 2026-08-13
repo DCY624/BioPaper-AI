@@ -26,8 +26,7 @@ def test_search_plan_builds_boolean_query_locally() -> None:
     )
 
     assert plan.boolean_query == (
-        "(probiotic OR Lactobacillus) AND "
-        '("intestinal barrier" OR "tight junction")'
+        '(probiotic OR Lactobacillus) AND ("intestinal barrier" OR "tight junction")'
     )
 
 
@@ -66,6 +65,38 @@ def test_search_plan_rejects_empty_groups() -> None:
             filters=SearchFilters(),
             generator="deterministic",
         )
+
+
+def test_search_plan_rejects_a_public_boolean_query_inconsistent_with_groups() -> None:
+    with pytest.raises(ValueError, match="boolean_query"):
+        SearchPlan(
+            original_query="probiotics",
+            topic="probiotics",
+            groups=(SynonymGroup(terms=("probiotic",)),),
+            mesh_terms=(),
+            filters=SearchFilters(),
+            generator="deterministic",
+            boolean_query="malicious external query",
+        )
+
+
+def test_synonym_group_strips_terms_and_rejects_whitespace_only_term() -> None:
+    assert SynonymGroup(terms=("  probiotic  ",)).boolean_clause == "(probiotic)"
+
+    with pytest.raises(ValueError, match="blank"):
+        SynonymGroup(terms=("   ",))
+
+
+def test_synonym_group_quotes_and_escapes_single_word_terms_containing_quotes() -> None:
+    group = SynonymGroup(terms=('foo"bar',))
+
+    assert group.boolean_clause == '("foo\\"bar")'
+
+
+@pytest.mark.parametrize("year", [-1, "2024", 2024.0])
+def test_search_filters_requires_strict_positive_integer_years(year: object) -> None:
+    with pytest.raises(ValueError, match="year"):
+        SearchFilters(year_from=year)
 
 
 def provenance(record_id: str = "123") -> Provenance:
