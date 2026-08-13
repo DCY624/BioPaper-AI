@@ -104,7 +104,11 @@ def _quote_term(term: str) -> str:
     normalized = term.strip()
     if not normalized:
         raise ValueError("synonym terms must not be blank")
-    if '"' in normalized or any(character.isspace() for character in normalized):
+    if (
+        '"' in normalized
+        or any(character.isspace() for character in normalized)
+        or not normalized.isascii()
+    ):
         escaped = normalized.replace('"', r"\"")
         return f'"{escaped}"'
     return normalized
