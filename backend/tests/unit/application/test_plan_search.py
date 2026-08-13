@@ -40,7 +40,12 @@ async def test_deterministic_generator_preserves_chinese_without_translation() -
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("use_ai", "api_key"),
-    [(False, SecretStr("configured")), (True, None)],
+    [
+        (False, SecretStr("configured")),
+        (True, None),
+        (True, SecretStr("")),
+        (True, SecretStr("   ")),
+    ],
 )
 async def test_plan_search_falls_back_without_instantiating_openai(
     use_ai: bool, api_key: SecretStr | None

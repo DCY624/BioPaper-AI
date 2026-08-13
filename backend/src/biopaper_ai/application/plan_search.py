@@ -30,9 +30,12 @@ class PlanSearch:
     async def execute(self, query: str, use_ai: bool) -> SearchPlan:
         """Use OpenAI only when both requested and configured."""
         api_key = self._settings.openai_api_key
-        if use_ai and api_key is not None:
+        api_key_value = (
+            api_key.get_secret_value().strip() if api_key is not None else ""
+        )
+        if use_ai and api_key_value:
             generator = self._openai_generator_factory(
-                api_key.get_secret_value(), self._settings.model
+                api_key_value, self._settings.model
             )
             return await generator.generate(query)
 

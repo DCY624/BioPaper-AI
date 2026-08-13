@@ -77,7 +77,16 @@ async def test_openai_generator_rejects_missing_or_refused_parsed_output() -> No
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "unsafe_term",
-    ["asthma OR bronchitis", "PMID 12345", "https://example.test/paper"],
+    [
+        "asthma OR bronchitis",
+        "PMID 12345",
+        "https://example.test/paper",
+        "PMC123456",
+        "pubmed:123456",
+        "asthma[Title/Abstract]",
+        "asthma*",
+        "(asthma)",
+    ],
 )
 async def test_openai_generator_rejects_boolean_or_identifier_model_data(
     unsafe_term: str,

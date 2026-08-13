@@ -10,7 +10,16 @@ from biopaper_ai.domain.search_plan import SearchFilters, SearchPlan, SynonymGro
 from biopaper_ai.errors import BioPaperError, ErrorCode
 
 _UNSAFE_DATA = re.compile(
-    r"(?:\b(?:AND|OR|NOT)\b|https?://|\b(?:PMID|PMCID|DOI)\b|10\.\d{4,9}/)",
+    r"(?:"
+    r"\b(?:AND|OR|NOT)\b|"
+    r"https?://|"
+    r"\b(?:PMID|PMCID|DOI)\b|"
+    r"\bPMC\d+\b|"
+    r"\b(?:pubmed|pmid|pmcid|doi)\s*:|"
+    r"10\.\d{4,9}/|"
+    r"\[[^\]]+\]|"
+    r"[()*]"
+    r")",
     re.IGNORECASE,
 )
 
