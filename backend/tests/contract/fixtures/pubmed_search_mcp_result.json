@@ -1,0 +1,84 @@
+{
+  "articles": [
+    {
+      "title": "Gut barrier effects of a probiotic intervention",
+      "primary_source": "pubmed",
+      "identifiers": {
+        "pmid": "41000001",
+        "doi": "10.1000/example.1",
+        "pmc": "PMC4100001",
+        "openalex_id": null,
+        "s2_id": null,
+        "core_id": null,
+        "arxiv_id": null
+      },
+      "authors": [
+        {"name": "Ada Researcher", "orcid": null},
+        {"name": "Lin Scientist", "orcid": null}
+      ],
+      "author_string": "Researcher A, Scientist L",
+      "abstract": "A sanitized abstract used only for the offline contract test.",
+      "journal": "Journal of Sanitized Results",
+      "journal_abbrev": "J Sanit Results",
+      "volume": "1",
+      "issue": "2",
+      "pages": "1-8",
+      "year": 2024,
+      "publication_date": "2024-05-01",
+      "publisher": null,
+      "article_type": "randomized-controlled-trial",
+      "keywords": [],
+      "mesh_terms": [],
+      "open_access": {
+        "is_oa": false,
+        "status": "unknown",
+        "best_link": null,
+        "links": []
+      },
+      "urls": {
+        "pubmed": "https://pubmed.ncbi.nlm.nih.gov/41000001/",
+        "doi": "https://doi.org/10.1000/example.1",
+        "pmc": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4100001/"
+      },
+      "sources": ["pubmed"]
+    },
+    {
+      "title": "Record without a truth-backed PubMed identifier",
+      "primary_source": "pubmed",
+      "identifiers": {
+        "pmid": null,
+        "doi": "10.1000/untrusted-only",
+        "pmc": null,
+        "openalex_id": null,
+        "s2_id": null,
+        "core_id": null,
+        "arxiv_id": null
+      },
+      "authors": [],
+      "author_string": "Unknown",
+      "abstract": null,
+      "journal": null,
+      "journal_abbrev": null,
+      "volume": null,
+      "issue": null,
+      "pages": null,
+      "year": null,
+      "publication_date": null,
+      "publisher": null,
+      "article_type": "unknown",
+      "keywords": [],
+      "mesh_terms": [],
+      "open_access": {
+        "is_oa": false,
+        "status": "unknown",
+        "best_link": null,
+        "links": []
+      },
+      "urls": {"pubmed": null, "doi": null, "pmc": null},
+      "sources": ["pubmed"]
+    }
+  ],
+  "source_counts": [
+    {"source": "pubmed", "returned": 2, "total_available": 17, "has_more": true}
+  ]
+}
