@@ -197,11 +197,22 @@ def _parse_and_map_articles(
     papers: list[Paper] = []
     failures: list[ProviderFailure] = []
     accounted_identifiers: set[str] = set()
-    for article in root.findall("./PubmedArticle"):
+    articles = root.findall("./PubmedArticle")
+    for article in articles:
         record = _article_record(article, response_sha256)
         record_id = record.get("pmid")
         if isinstance(record_id, str):
             accounted_identifiers.add(record_id)
+        if not isinstance(record_id, str) or record_id not in requested_identifiers:
+            failures.append(
+                ProviderFailure(
+                    source=SourceName.PUBMED,
+                    code=ProviderFailureCode.INVALID_RECORD,
+                    message="PubMed returned an unexpected record",
+                    record_id=record_id if isinstance(record_id, str) else None,
+                )
+            )
+            continue
         try:
             papers.append(map_pubmed_record(record, retrieved_at))
         except ValueError:
@@ -223,7 +234,7 @@ def _parse_and_map_articles(
                     record_id=missing_id,
                 )
             )
-    if not papers and failures:
+    if not articles:
         raise ValueError("PubMed returned no complete requested records")
     return tuple(papers), tuple(failures)
 

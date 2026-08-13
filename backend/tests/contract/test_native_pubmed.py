@@ -184,6 +184,46 @@ async def test_missing_requested_pmid_is_visible_as_invalid_record() -> None:
     assert result.failures[0].record_id == "10000002"
 
 
+@pytest.mark.asyncio
+async def test_all_incomplete_articles_preserve_per_record_failures() -> None:
+    incomplete_xml = b"""\
+<PubmedArticleSet>
+  <PubmedArticle><MedlineCitation><PMID>10000001</PMID></MedlineCitation></PubmedArticle>
+  <PubmedArticle><MedlineCitation><PMID>10000002</PMID></MedlineCitation></PubmedArticle>
+</PubmedArticleSet>
+"""
+
+    result = await search_with_fetch_xml(incomplete_xml)
+
+    assert result.papers == ()
+    assert [failure.code for failure in result.failures] == [
+        ProviderFailureCode.INVALID_RECORD,
+        ProviderFailureCode.INVALID_RECORD,
+    ]
+    assert [failure.record_id for failure in result.failures] == [
+        "10000001",
+        "10000002",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unexpected_pmid_is_never_returned_as_a_paper() -> None:
+    fetch_fixture = (FIXTURES / "ncbi_efetch.xml").read_bytes()
+    inconsistent_xml = fetch_fixture.replace(b"10000002", b"99999999")
+
+    result = await search_with_fetch_xml(inconsistent_xml)
+
+    assert [paper.identifiers.pmid for paper in result.papers] == ["10000001"]
+    assert {failure.record_id for failure in result.failures} == {
+        "10000002",
+        "99999999",
+    }
+    assert all(
+        failure.code is ProviderFailureCode.INVALID_RECORD
+        for failure in result.failures
+    )
+
+
 async def search_with_fetch_xml(xml: bytes) -> ProviderResult:
     search_fixture = json.loads((FIXTURES / "ncbi_esearch.json").read_text())
     with respx.mock(assert_all_called=True) as router:
