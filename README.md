@@ -11,9 +11,10 @@ than asking users to trust generated citations.
 Phase 1 treats PubMed responses as the source of truth for papers and external
 identifiers. Boolean syntax is built locally from a displayed `SearchPlan`, and
 search executes that reviewed syntax instead of the raw natural-language
-question. PMID, PMCID, DOI, titles, abstracts, and provenance URLs come from
-database responses; the tool does not manufacture identifiers or infer
-scientific conclusions.
+question. PMID, PMCID, DOI, titles, and abstracts come from database responses.
+Provenance URLs are constructed locally from returned PMID values and restricted
+to the allowlisted PubMed host; the tool does not manufacture identifiers or
+infer scientific conclusions.
 
 OpenAI-assisted planning is optional and requires the user's own API key. Model
 output can propose search concepts, but it cannot supply paper IDs, source
