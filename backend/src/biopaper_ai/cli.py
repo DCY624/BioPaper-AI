@@ -1,10 +1,5 @@
-"""Command-line entry point for BioPaper AI."""
+"""Compatibility import for the BioPaper AI console script."""
 
-import typer
+from biopaper_ai.entrypoints.cli.app import app
 
-app = typer.Typer(help="BioPaper AI trusted biomedical literature search.")
-
-
-@app.command()
-def main() -> None:
-    """Start the BioPaper AI command-line interface."""
+__all__ = ["app"]

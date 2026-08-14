@@ -1,0 +1,258 @@
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+from pydantic import SecretStr
+from typer.testing import CliRunner
+
+from biopaper_ai.application.ports.search_provider import (
+    ProviderFailure,
+    ProviderFailureCode,
+    SourceCount,
+)
+from biopaper_ai.application.search_papers import SearchHit, SearchRun
+from biopaper_ai.config import Settings
+from biopaper_ai.domain.paper import Paper, PaperIdentifiers
+from biopaper_ai.domain.provenance import Provenance, SourceName
+from biopaper_ai.domain.search_plan import SearchFilters, SearchPlan, SynonymGroup
+from biopaper_ai.entrypoints.cli.app import create_app
+
+EXECUTED_AT = datetime(2026, 8, 14, 11, 0, tzinfo=UTC)
+RUNNER = CliRunner()
+
+
+class RecordingPlanService:
+    def __init__(self, plan: SearchPlan) -> None:
+        self.plan = plan
+        self.calls: list[tuple[str, bool]] = []
+
+    async def execute(self, query: str, use_ai: bool) -> SearchPlan:
+        self.calls.append((query, use_ai))
+        return self.plan
+
+
+class RecordingSearchService:
+    def __init__(self, run: SearchRun) -> None:
+        self.run = run
+        self.calls: list[tuple[SearchPlan, int]] = []
+
+    async def execute(self, plan: SearchPlan, limit: int) -> SearchRun:
+        self.calls.append((plan, limit))
+        return self.run
+
+
+def test_plan_json_outputs_plan_without_calling_search() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(app, ["plan", "probiotic", "--json", "--no-ai"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["boolean_query"] == "(probiotic)"
+    assert plan_service.calls == [("probiotic", False)]
+    assert search_service.calls == []
+
+
+def test_non_interactive_search_requires_explicit_plan_acceptance() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(app, ["search", "probiotic", "--non-interactive"])
+
+    assert result.exit_code == 2
+    assert "--accept-plan" in result.output
+    assert plan_service.calls == []
+    assert search_service.calls == []
+
+
+def test_accept_plan_with_no_ai_never_requests_openai() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(
+        app,
+        ["search", "probiotic", "--accept-plan", "--no-ai", "--limit", "7"],
+    )
+
+    assert result.exit_code == 0
+    assert plan_service.calls == [("probiotic", False)]
+    assert search_service.calls == [(plan_service.plan, 7)]
+
+
+def test_interactive_rejection_does_not_call_search() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(
+        app,
+        ["search", "probiotic", "--no-ai"],
+        input="n\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Boolean query" in result.output
+    assert "Search this reviewed plan?" in result.output
+    assert search_service.calls == []
+
+
+def test_doctor_reports_configuration_flags_without_secret_values() -> None:
+    ncbi_secret = "fake-ncbi-secret-never-print"
+    openai_secret = "fake-openai-secret-never-print"
+    database_secret = "fake-database-secret-never-print"
+    settings = Settings(
+        ncbi_email="researcher@example.test",
+        ncbi_api_key=SecretStr(ncbi_secret),
+        openai_api_key=SecretStr(openai_secret),
+        database_url=f"postgresql://user:{database_secret}@database.test/biopaper",
+    )
+    app = _make_app(
+        RecordingPlanService(search_plan()),
+        RecordingSearchService(search_run()),
+        settings=settings,
+    )
+
+    result = RUNNER.invoke(app, ["doctor"], terminal_width=240)
+
+    assert result.exit_code == 0
+    assert "NCBI API key configured" in result.output
+    assert "OpenAI API key configured" in result.output
+    assert "yes" in result.output
+    assert ncbi_secret not in result.output
+    assert openai_secret not in result.output
+    assert database_secret not in result.output
+    assert "postgresql://user:" not in result.output
+
+
+def test_partial_failure_with_papers_warns_and_exits_zero() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(
+        search_run(with_hit=True, with_failure=True)
+    )
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(app, accepted_search_args())
+
+    assert result.exit_code == 0
+    assert "warning" in result.output.lower()
+    assert "rate limited" in result.output.lower()
+    assert "Probiotic outcomes" in result.output
+
+
+def test_source_failure_without_papers_exits_non_zero() -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(
+        search_run(with_hit=False, with_failure=True)
+    )
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(app, accepted_search_args())
+
+    assert result.exit_code == 1
+    assert "rate limited" in result.output.lower()
+
+
+@pytest.mark.parametrize("suffix", ["json", "csv"])
+def test_output_path_exports_results_with_provenance(
+    tmp_path: Path, suffix: str
+) -> None:
+    plan_service = RecordingPlanService(search_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+    destination = tmp_path / f"results.{suffix}"
+
+    result = RUNNER.invoke(
+        app,
+        [*accepted_search_args(), "--output", str(destination)],
+    )
+
+    assert result.exit_code == 0
+    assert destination.exists()
+    exported = destination.read_text(encoding="utf-8-sig")
+    assert "pubmed" in exported
+    assert "https://pubmed.ncbi.nlm.nih.gov/12345/" in exported
+
+
+def _make_app(
+    plan_service: RecordingPlanService,
+    search_service: RecordingSearchService,
+    *,
+    settings: Settings | None = None,
+) -> object:
+    configured = settings or Settings()
+    return create_app(
+        settings_factory=lambda: configured,
+        plan_service_factory=lambda _: plan_service,
+        search_service_factory=lambda _: search_service,
+    )
+
+
+def accepted_search_args() -> list[str]:
+    return ["search", "probiotic", "--accept-plan", "--no-ai"]
+
+
+def search_plan() -> SearchPlan:
+    return SearchPlan.build(
+        original_query="probiotic",
+        topic="probiotic",
+        groups=(SynonymGroup(terms=("probiotic",)),),
+        mesh_terms=("Probiotics",),
+        filters=SearchFilters(),
+        generator="deterministic",
+    )
+
+
+def search_run(*, with_hit: bool = True, with_failure: bool = False) -> SearchRun:
+    plan = search_plan()
+    paper = Paper(
+        title="Probiotic outcomes",
+        year=2025,
+        journal="Journal of Tests",
+        abstract="A probiotic improved outcomes.",
+        identifiers=PaperIdentifiers(pmid="12345", doi="10.1000/example"),
+        provenance=(
+            Provenance(
+                source=SourceName.PUBMED,
+                record_id="12345",
+                url="https://pubmed.ncbi.nlm.nih.gov/12345/",
+                retrieved_at=EXECUTED_AT,
+            ),
+        ),
+    )
+    failures = (
+        (
+            ProviderFailure(
+                source=SourceName.PUBMED,
+                code=ProviderFailureCode.RATE_LIMITED,
+                message="PubMed request was rate limited",
+                retry_after_seconds=2,
+            ),
+        )
+        if with_failure
+        else ()
+    )
+    hits = (
+        (SearchHit(paper=paper, ranking_reasons=("title term match: probiotic",)),)
+        if with_hit
+        else ()
+    )
+    return SearchRun(
+        run_id=UUID("12345678-1234-5678-9234-567812345678"),
+        executed_at=EXECUTED_AT,
+        plan=plan,
+        hits=hits,
+        source_counts=(
+            SourceCount(
+                source=SourceName.PUBMED,
+                requested=10,
+                returned=len(hits),
+            ),
+        ),
+        failures=failures,
+        ambiguous_matches=(),
+    )
