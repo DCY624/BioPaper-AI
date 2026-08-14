@@ -11,6 +11,10 @@ from typing import TextIO, cast
 from biopaper_ai.application.search_papers import SearchRun
 
 _CSV_COLUMNS = (
+    "row_type",
+    "run_id",
+    "executed_at",
+    "boolean_query",
     "pmid",
     "pmcid",
     "doi",
@@ -20,6 +24,18 @@ _CSV_COLUMNS = (
     "abstract",
     "source_names",
     "source_urls",
+    "ranking_reasons",
+    "audit_source",
+    "requested_count",
+    "returned_count",
+    "failure_code",
+    "failure_message",
+    "retry_after_seconds",
+    "failure_record_id",
+    "ambiguous_title",
+    "ambiguous_year",
+    "ambiguous_paper_ids",
+    "conflicting_identifier_types",
 )
 _Writer = Callable[[TextIO], None]
 
@@ -78,6 +94,7 @@ def _write_csv(handle: TextIO, run: SearchRun) -> None:
         paper = hit.paper
         writer.writerow(
             {
+                **_csv_audit_base(run, "paper"),
                 "pmid": paper.identifiers.pmid or "",
                 "pmcid": paper.identifiers.pmcid or "",
                 "doi": paper.identifiers.doi or "",
@@ -87,5 +104,55 @@ def _write_csv(handle: TextIO, run: SearchRun) -> None:
                 "abstract": paper.abstract or "",
                 "source_names": "|".join(record.source for record in paper.provenance),
                 "source_urls": "|".join(str(record.url) for record in paper.provenance),
+                "ranking_reasons": "|".join(hit.ranking_reasons),
             }
         )
+    for count in run.source_counts:
+        writer.writerow(
+            {
+                **_csv_audit_base(run, "source_count"),
+                "audit_source": count.source,
+                "requested_count": str(count.requested),
+                "returned_count": str(count.returned),
+            }
+        )
+    for failure in run.failures:
+        writer.writerow(
+            {
+                **_csv_audit_base(run, "failure"),
+                "audit_source": failure.source,
+                "failure_code": failure.code,
+                "failure_message": failure.message,
+                "retry_after_seconds": (
+                    ""
+                    if failure.retry_after_seconds is None
+                    else format(failure.retry_after_seconds, "g")
+                ),
+                "failure_record_id": failure.record_id or "",
+            }
+        )
+    for ambiguous in run.ambiguous_matches:
+        writer.writerow(
+            {
+                **_csv_audit_base(run, "ambiguity"),
+                "ambiguous_title": ambiguous.normalized_title,
+                "ambiguous_year": (
+                    str(ambiguous.year) if ambiguous.year is not None else ""
+                ),
+                "ambiguous_paper_ids": "|".join(
+                    paper.primary_id for paper in ambiguous.papers
+                ),
+                "conflicting_identifier_types": "|".join(
+                    ambiguous.conflicting_identifier_types
+                ),
+            }
+        )
+
+
+def _csv_audit_base(run: SearchRun, row_type: str) -> dict[str, str]:
+    return {
+        "row_type": row_type,
+        "run_id": str(run.run_id),
+        "executed_at": run.executed_at.isoformat(),
+        "boolean_query": run.plan.boolean_query,
+    }

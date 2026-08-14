@@ -2,10 +2,13 @@
 
 import asyncio
 import hashlib
+import math
+import random
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from xml.etree.ElementTree import Element, ParseError
 
 import httpx
@@ -30,6 +33,15 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 Clock = Callable[[], float]
 Sleep = Callable[[float], Awaitable[None]]
 Now = Callable[[], datetime]
+Jitter = Callable[[float], float]
+Request = Callable[[], Awaitable[httpx.Response]]
+
+_MAX_REQUEST_ATTEMPTS = 3
+_INITIAL_BACKOFF_SECONDS = 0.5
+
+
+def _random_jitter(delay: float) -> float:
+    return float(random.uniform(0.0, delay))
 
 
 class NativePubMedProvider:
@@ -43,6 +55,7 @@ class NativePubMedProvider:
         clock: Clock = time.monotonic,
         sleep: Sleep = asyncio.sleep,
         now: Now | None = None,
+        jitter: Jitter | None = None,
     ) -> None:
         if not settings.can_search_live or settings.ncbi_email is None:
             raise ValueError("BIOPAPER_NCBI_EMAIL is required for PubMed search")
@@ -56,6 +69,7 @@ class NativePubMedProvider:
         self._clock = clock
         self._sleep = sleep
         self._now = now or (lambda: datetime.now(UTC))
+        self._jitter: Jitter = jitter or _random_jitter
         self._minimum_interval = 1.0 / (10 if self._api_key else 3)
         self._last_request_at: float | None = None
         self._rate_lock = asyncio.Lock()
@@ -75,7 +89,10 @@ class NativePubMedProvider:
                     return _result(limit=limit)
                 fetch_response = await self._efetch(client, identifiers)
             except httpx.HTTPStatusError as error:
-                return _result(limit=limit, failure=_http_failure(error))
+                return _result(
+                    limit=limit,
+                    failure=_http_failure(error, now=self._now()),
+                )
             except (httpx.TimeoutException, httpx.RequestError, ValueError) as error:
                 return _result(
                     limit=limit,
@@ -127,15 +144,11 @@ class NativePubMedProvider:
             "tool": "BioPaperAI",
             "email": self._email,
         }
-        await self._pace()
         if self._api_key is None:
-            response = await client.get(ESEARCH_URL, params=data)
-        else:
-            response = await client.post(
-                ESEARCH_URL, data={**data, "api_key": self._api_key}
-            )
-        response.raise_for_status()
-        return response
+            return await self._request(lambda: client.get(ESEARCH_URL, params=data))
+        return await self._request(
+            lambda: client.post(ESEARCH_URL, data={**data, "api_key": self._api_key})
+        )
 
     async def _efetch(
         self, client: httpx.AsyncClient, identifiers: tuple[str, ...]
@@ -149,10 +162,44 @@ class NativePubMedProvider:
         }
         if self._api_key is not None:
             data["api_key"] = self._api_key
-        await self._pace()
-        response = await client.post(EFETCH_URL, data=data)
-        response.raise_for_status()
-        return response
+        return await self._request(lambda: client.post(EFETCH_URL, data=data))
+
+    async def _request(self, request: Request) -> httpx.Response:
+        """Send one paced request with a strict retry boundary."""
+        for attempt in range(_MAX_REQUEST_ATTEMPTS):
+            await self._pace()
+            try:
+                response = await request()
+                response.raise_for_status()
+                return response
+            except httpx.TimeoutException as error:
+                retry_error: httpx.TimeoutException | httpx.HTTPStatusError = error
+            except httpx.HTTPStatusError as error:
+                if not _is_retryable_status(error.response.status_code):
+                    raise
+                retry_error = error
+
+            if attempt == _MAX_REQUEST_ATTEMPTS - 1:
+                raise retry_error
+            await self._sleep(self._retry_delay(retry_error, attempt))
+
+        raise RuntimeError("request retry boundary exhausted")
+
+    def _retry_delay(
+        self,
+        error: httpx.TimeoutException | httpx.HTTPStatusError,
+        attempt: int,
+    ) -> float:
+        if isinstance(error, httpx.HTTPStatusError):
+            retry_after = _retry_after(
+                error.response.headers.get("Retry-After"),
+                now=self._now(),
+            )
+            if retry_after is not None:
+                return retry_after
+        backoff = _INITIAL_BACKOFF_SECONDS * float(2**attempt)
+        jitter = max(0.0, float(self._jitter(backoff)))
+        return backoff + jitter
 
     async def _pace(self) -> None:
         async with self._rate_lock:
@@ -314,13 +361,20 @@ def _publication_year(article: Element) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _http_failure(error: httpx.HTTPStatusError) -> ProviderFailure:
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _http_failure(error: httpx.HTTPStatusError, *, now: datetime) -> ProviderFailure:
     if error.response.status_code == 429:
         return ProviderFailure(
             source=SourceName.PUBMED,
             code=ProviderFailureCode.RATE_LIMITED,
             message="PubMed rate limit reached",
-            retry_after_seconds=_retry_after(error.response.headers.get("Retry-After")),
+            retry_after_seconds=_retry_after(
+                error.response.headers.get("Retry-After"),
+                now=now,
+            ),
         )
     return ProviderFailure(
         source=SourceName.PUBMED,
@@ -329,14 +383,24 @@ def _http_failure(error: httpx.HTTPStatusError) -> ProviderFailure:
     )
 
 
-def _retry_after(value: str | None) -> float | None:
+def _retry_after(value: str | None, *, now: datetime) -> float | None:
     if value is None:
         return None
     try:
         parsed = float(value)
     except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        return max((retry_at - now).total_seconds(), 0.0)
+    if not math.isfinite(parsed) or parsed < 0:
         return None
-    return max(parsed, 0.0)
+    return parsed
 
 
 def _result(*, limit: int, failure: ProviderFailure | None = None) -> ProviderResult:

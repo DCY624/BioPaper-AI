@@ -13,8 +13,23 @@ def render_plan(console: Console, plan: SearchPlan) -> None:
     table = Table(title="Search plan")
     table.add_column("Field")
     table.add_column("Value")
+    table.add_row("Original query", plan.original_query)
     table.add_row("Topic", plan.topic)
+    table.add_row(
+        "Synonym groups",
+        "\n".join(
+            f"{position}. {' | '.join(group.terms)}"
+            for position, group in enumerate(plan.groups, start=1)
+        ),
+    )
+    table.add_row("Candidate MeSH", " | ".join(plan.mesh_terms) or "none")
     table.add_row("Boolean query", plan.boolean_query)
+    table.add_row("Year filter", _year_filter(plan))
+    table.add_row("Species filter", " | ".join(plan.filters.species) or "none")
+    table.add_row(
+        "Study type filter",
+        " | ".join(plan.filters.study_types) or "none",
+    )
     table.add_row("Generator", plan.generator)
     table.add_row("Warnings", "\n".join(plan.warnings) or "none")
     console.print(table)
@@ -61,3 +76,11 @@ def render_doctor(console: Console, settings: Settings) -> None:
 
 def _yes_no(value: bool) -> str:
     return "yes" if value else "no"
+
+
+def _year_filter(plan: SearchPlan) -> str:
+    year_from = str(plan.filters.year_from) if plan.filters.year_from else "any"
+    year_to = str(plan.filters.year_to) if plan.filters.year_to else "any"
+    if year_from == year_to == "any":
+        return "none"
+    return f"{year_from} through {year_to}"

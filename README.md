@@ -74,16 +74,20 @@ biopaper search "BRCA1 breast cancer review 2024" --no-ai --limit 5 --non-intera
 ```
 
 JSON preserves the plan, identifiers, provenance, failures, and ambiguous
-matches. CSV provides paper metadata and source names and URLs. Ranking reasons
-describe literal title matches, abstract matches, and publication year; they
-are not scientific relevance scores.
+matches. CSV uses typed rows: `paper` rows provide metadata, ranking reasons,
+source names, and source URLs, while `source_count`, `failure`, and `ambiguity`
+rows preserve run-level audit information, including partial failures and any
+retry delay reported by a source. Ranking reasons describe literal title
+matches, abstract matches, and publication year; they are not scientific
+relevance scores.
 
 ## NCBI usage and release verification
 
 BioPaper AI identifies live requests with `BIOPAPER_NCBI_EMAIL` and limits NCBI
 traffic to 3 requests per second without an API key or 10 requests per second
-with one. Use NCBI services responsibly and follow the current NCBI usage
-guidelines.
+with one. Transient timeouts, rate limits, and server errors use a bounded retry
+policy; an NCBI `Retry-After` value is honored when valid. Use NCBI services
+responsibly and follow the current NCBI usage guidelines.
 
 Run the reproducible offline Phase 1 gate from the repository root:
 

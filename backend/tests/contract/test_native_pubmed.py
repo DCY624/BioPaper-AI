@@ -74,45 +74,155 @@ async def test_native_pubmed_offline_contract() -> None:
 
 @pytest.mark.asyncio
 async def test_rate_limit_failure_preserves_retry_after() -> None:
+    ticker = FakeTicker()
     with respx.mock(assert_all_called=True) as router:
-        router.get(ESEARCH_URL).mock(
+        search_route = router.get(ESEARCH_URL).mock(
             return_value=httpx.Response(429, headers={"Retry-After": "2.5"})
         )
         async with httpx.AsyncClient() as client:
             result = await NativePubMedProvider(
-                Settings(ncbi_email="maintainer@example.test"), client=client
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
             ).search(search_plan(), limit=2)
 
+    assert search_route.call_count == 3
+    assert ticker.delays == [2.5, 2.5]
     assert result.papers == ()
     assert result.failures[0].code is ProviderFailureCode.RATE_LIMITED
     assert result.failures[0].retry_after_seconds == 2.5
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status_code", [500, 503])
-async def test_server_errors_become_source_unavailable(status_code: int) -> None:
+async def test_esearch_retries_timeout_and_server_error_with_bounded_backoff() -> None:
+    search_fixture = json.loads((FIXTURES / "ncbi_esearch.json").read_text())
+    fetch_fixture = (FIXTURES / "ncbi_efetch.xml").read_bytes()
+    ticker = FakeTicker()
+    request = httpx.Request("GET", ESEARCH_URL)
+
     with respx.mock(assert_all_called=True) as router:
-        router.get(ESEARCH_URL).mock(return_value=httpx.Response(status_code))
+        search_route = router.get(ESEARCH_URL).mock(
+            side_effect=[
+                httpx.ReadTimeout("late secret detail", request=request),
+                httpx.Response(503),
+                httpx.Response(200, json=search_fixture),
+            ]
+        )
+        router.post(EFETCH_URL).mock(
+            return_value=httpx.Response(200, content=fetch_fixture)
+        )
         async with httpx.AsyncClient() as client:
             result = await NativePubMedProvider(
-                Settings(ncbi_email="maintainer@example.test"), client=client
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
             ).search(search_plan(), limit=2)
 
+    assert search_route.call_count == 3
+    assert ticker.delays == pytest.approx([0.5, 1.0, 1 / 3])
+    assert len(result.papers) == 2
+    assert result.failures == ()
+
+
+@pytest.mark.asyncio
+async def test_efetch_retries_429_using_retry_after_http_date() -> None:
+    search_fixture = json.loads((FIXTURES / "ncbi_esearch.json").read_text())
+    fetch_fixture = (FIXTURES / "ncbi_efetch.xml").read_bytes()
+    ticker = FakeTicker()
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get(ESEARCH_URL).mock(
+            return_value=httpx.Response(200, json=search_fixture)
+        )
+        fetch_route = router.post(EFETCH_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    429,
+                    headers={"Retry-After": "Fri, 14 Aug 2026 11:00:05 GMT"},
+                ),
+                httpx.Response(200, content=fetch_fixture),
+            ]
+        )
+        async with httpx.AsyncClient() as client:
+            result = await NativePubMedProvider(
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
+                now=lambda: datetime(2026, 8, 14, 11, 0, tzinfo=UTC),
+            ).search(search_plan(), limit=2)
+
+    assert fetch_route.call_count == 2
+    assert ticker.delays == pytest.approx([1 / 3, 5.0])
+    assert len(result.papers) == 2
+    assert result.failures == ()
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_client_error_is_attempted_once() -> None:
+    ticker = FakeTicker()
+    with respx.mock(assert_all_called=True) as router:
+        search_route = router.get(ESEARCH_URL).mock(return_value=httpx.Response(400))
+        async with httpx.AsyncClient() as client:
+            result = await NativePubMedProvider(
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
+            ).search(search_plan(), limit=2)
+
+    assert search_route.call_count == 1
+    assert ticker.delays == []
+    assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [500, 503])
+async def test_server_errors_become_source_unavailable(status_code: int) -> None:
+    ticker = FakeTicker()
+    with respx.mock(assert_all_called=True) as router:
+        search_route = router.get(ESEARCH_URL).mock(
+            return_value=httpx.Response(status_code)
+        )
+        async with httpx.AsyncClient() as client:
+            result = await NativePubMedProvider(
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
+            ).search(search_plan(), limit=2)
+
+    assert search_route.call_count == 3
+    assert ticker.delays == [0.5, 1.0]
     assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
 
 
 @pytest.mark.asyncio
 async def test_timeout_becomes_source_unavailable() -> None:
     request = httpx.Request("GET", ESEARCH_URL)
+    ticker = FakeTicker()
     with respx.mock(assert_all_called=True) as router:
-        router.get(ESEARCH_URL).mock(
+        search_route = router.get(ESEARCH_URL).mock(
             side_effect=httpx.ReadTimeout("late", request=request)
         )
         async with httpx.AsyncClient() as client:
             result = await NativePubMedProvider(
-                Settings(ncbi_email="maintainer@example.test"), client=client
+                Settings(ncbi_email="maintainer@example.test"),
+                client=client,
+                clock=ticker.clock,
+                sleep=ticker.sleep,
+                jitter=lambda _: 0.0,
             ).search(search_plan(), limit=2)
 
+    assert search_route.call_count == 3
+    assert ticker.delays == [0.5, 1.0]
     assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
     assert "late" not in result.failures[0].message
 

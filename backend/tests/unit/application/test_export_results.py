@@ -65,26 +65,108 @@ def test_csv_export_has_bom_required_columns_and_provenance_without_secrets(
 
     assert destination.read_bytes().startswith(b"\xef\xbb\xbf")
     with destination.open(encoding="utf-8-sig", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    assert rows == [
-        {
-            "pmid": "12345",
-            "pmcid": "PMC6789",
-            "doi": "10.1000/example",
-            "title": "Probiotic outcomes",
-            "year": "2025",
-            "journal": "Journal of Tests",
-            "abstract": "A probiotic improved outcomes.",
-            "source_names": "pubmed|pmc",
-            "source_urls": (
-                "https://pubmed.ncbi.nlm.nih.gov/12345/|"
-                "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6789/"
-            ),
-        }
-    ]
+        reader = csv.DictReader(handle)
+        assert {
+            "pmid",
+            "pmcid",
+            "doi",
+            "title",
+            "year",
+            "journal",
+            "abstract",
+            "source_names",
+            "source_urls",
+        }.issubset(reader.fieldnames or ())
+        rows = list(reader)
+    paper_rows = [row for row in rows if row["row_type"] == "paper"]
+    assert len(paper_rows) == 1
+    paper_row = paper_rows[0]
+    assert {
+        key: paper_row[key]
+        for key in (
+            "pmid",
+            "pmcid",
+            "doi",
+            "title",
+            "year",
+            "journal",
+            "abstract",
+            "source_names",
+            "source_urls",
+        )
+    } == {
+        "pmid": "12345",
+        "pmcid": "PMC6789",
+        "doi": "10.1000/example",
+        "title": "Probiotic outcomes",
+        "year": "2025",
+        "journal": "Journal of Tests",
+        "abstract": "A probiotic improved outcomes.",
+        "source_names": "pubmed|pmc",
+        "source_urls": (
+            "https://pubmed.ncbi.nlm.nih.gov/12345/|"
+            "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6789/"
+        ),
+    }
     exported = destination.read_text(encoding="utf-8-sig")
     assert FAKE_NCBI_SECRET not in exported
     assert FAKE_OPENAI_SECRET not in exported
+
+
+def test_csv_export_preserves_partial_failure_and_run_level_audit(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "partial.csv"
+
+    export_search_run(search_run(), "csv", destination)
+
+    with destination.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows_by_type = {row["row_type"]: row for row in rows}
+    assert set(rows_by_type) == {
+        "paper",
+        "source_count",
+        "failure",
+        "ambiguity",
+    }
+    assert all(row["run_id"] == "12345678-1234-5678-9234-567812345678" for row in rows)
+    assert rows_by_type["paper"]["ranking_reasons"] == ("title term match: probiotic")
+    assert {
+        key: rows_by_type["source_count"][key]
+        for key in ("audit_source", "requested_count", "returned_count")
+    } == {
+        "audit_source": "pubmed",
+        "requested_count": "10",
+        "returned_count": "1",
+    }
+    assert {
+        key: rows_by_type["failure"][key]
+        for key in (
+            "audit_source",
+            "failure_code",
+            "failure_message",
+            "retry_after_seconds",
+        )
+    } == {
+        "audit_source": "pmc",
+        "failure_code": "rate_limited",
+        "failure_message": "PMC request was rate limited",
+        "retry_after_seconds": "2",
+    }
+    assert {
+        key: rows_by_type["ambiguity"][key]
+        for key in (
+            "ambiguous_title",
+            "ambiguous_year",
+            "ambiguous_paper_ids",
+            "conflicting_identifier_types",
+        )
+    } == {
+        "ambiguous_title": "same title",
+        "ambiguous_year": "2025",
+        "ambiguous_paper_ids": "pmid:11111|pmid:54321",
+        "conflicting_identifier_types": "pmid",
+    }
 
 
 def test_export_rejects_unknown_format_without_replacing_destination(

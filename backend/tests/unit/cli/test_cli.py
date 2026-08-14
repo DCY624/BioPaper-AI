@@ -1,10 +1,12 @@
 import json
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from rich.console import Console
 from typer.testing import CliRunner
 
 from biopaper_ai.application.ports.search_provider import (
@@ -18,6 +20,7 @@ from biopaper_ai.domain.paper import Paper, PaperIdentifiers
 from biopaper_ai.domain.provenance import Provenance, SourceName
 from biopaper_ai.domain.search_plan import SearchFilters, SearchPlan, SynonymGroup
 from biopaper_ai.entrypoints.cli.app import create_app
+from biopaper_ai.entrypoints.cli.render import render_plan
 
 EXECUTED_AT = datetime(2026, 8, 14, 11, 0, tzinfo=UTC)
 RUNNER = CliRunner()
@@ -98,6 +101,51 @@ def test_interactive_rejection_does_not_call_search() -> None:
     assert result.exit_code == 0
     assert "Boolean query" in result.output
     assert "Search this reviewed plan?" in result.output
+    assert search_service.calls == []
+
+
+def test_render_plan_includes_every_reviewable_search_input() -> None:
+    output = StringIO()
+
+    render_plan(Console(file=output, width=240, color_system=None), detailed_plan())
+
+    rendered = output.getvalue()
+    assert "Original query" in rendered
+    assert "probiotics for gut barrier" in rendered
+    assert "Synonym groups" in rendered
+    assert "1. probiotic | gut flora" in rendered
+    assert "2. intestinal barrier" in rendered
+    assert "Candidate MeSH" in rendered
+    assert "Probiotics | Gastrointestinal Microbiome" in rendered
+    assert "Year filter" in rendered
+    assert "2021 through 2026" in rendered
+    assert "Species filter" in rendered
+    assert "Mice | Humans" in rendered
+    assert "Study type filter" in rendered
+    assert "Review | Randomized Controlled Trial" in rendered
+
+
+def test_interactive_review_shows_complete_plan_before_confirmation() -> None:
+    plan_service = RecordingPlanService(detailed_plan())
+    search_service = RecordingSearchService(search_run())
+    app = _make_app(plan_service, search_service)
+
+    result = RUNNER.invoke(
+        app,
+        ["search", "probiotics for gut barrier", "--no-ai"],
+        input="n\n",
+        terminal_width=240,
+    )
+
+    confirmation_position = result.output.index("Search this reviewed plan?")
+    for expected in (
+        "Synonym groups",
+        "Candidate MeSH",
+        "2021 through 2026",
+        "Mice | Humans",
+        "Review | Randomized Controlled Trial",
+    ):
+        assert 0 <= result.output.index(expected) < confirmation_position
     assert search_service.calls == []
 
 
@@ -219,6 +267,25 @@ def search_plan() -> SearchPlan:
         mesh_terms=("Probiotics",),
         filters=SearchFilters(),
         generator="deterministic",
+    )
+
+
+def detailed_plan() -> SearchPlan:
+    return SearchPlan.build(
+        original_query="probiotics for gut barrier",
+        topic="probiotics and intestinal barrier",
+        groups=(
+            SynonymGroup(terms=("probiotic", "gut flora")),
+            SynonymGroup(terms=("intestinal barrier",)),
+        ),
+        mesh_terms=("Probiotics", "Gastrointestinal Microbiome"),
+        filters=SearchFilters(
+            year_from=2021,
+            year_to=2026,
+            species=("Mice", "Humans"),
+            study_types=("Review", "Randomized Controlled Trial"),
+        ),
+        generator="openai",
     )
 
 
