@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pubmed_search import UnifiedSearchResult
 
 from biopaper_ai.adapters.search.pubmed_search_mcp import (
     PubMedSearchMcpProvider,
@@ -20,16 +21,20 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 class FakeUnifiedResult:
     def __init__(self, payload: Mapping[str, Any]) -> None:
+        self.structured = dict(payload)
         self.articles = list(payload["articles"])
         self.source_counts = list(payload["source_counts"])
 
 
+FakeSdkResult = FakeUnifiedResult | UnifiedSearchResult
+
+
 class FakePubMedSearchClient:
-    def __init__(self, result: FakeUnifiedResult | Exception) -> None:
+    def __init__(self, result: FakeSdkResult | Exception) -> None:
         self.result = result
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    async def unified_search(self, query: str, **kwargs: object) -> FakeUnifiedResult:
+    async def unified_search(self, query: str, **kwargs: object) -> FakeSdkResult:
         self.calls.append((query, kwargs))
         if isinstance(self.result, Exception):
             raise self.result
@@ -86,6 +91,57 @@ async def test_upstream_exception_is_sanitized() -> None:
     assert "RuntimeError" not in result.failures[0].message
 
 
+@pytest.mark.asyncio
+async def test_unknown_empty_sdk_result_is_sanitized_as_unavailable() -> None:
+    client = FakePubMedSearchClient(empty_sdk_result(total_available=None))
+
+    result = await PubMedSearchMcpProvider(client).search(filtered_search_plan(), 2)
+
+    assert result.papers == ()
+    assert [failure.code for failure in result.failures] == [
+        ProviderFailureCode.SOURCE_UNAVAILABLE
+    ]
+    assert all(
+        failure.message == "PubMed SDK source is unavailable"
+        for failure in result.failures
+    )
+
+
+@pytest.mark.asyncio
+async def test_confirmed_empty_sdk_result_remains_a_valid_empty_result() -> None:
+    client = FakePubMedSearchClient(empty_sdk_result(total_available=0))
+
+    result = await PubMedSearchMcpProvider(client).search(filtered_search_plan(), 2)
+
+    assert result.papers == ()
+    assert result.source_counts[0].returned == 0
+    assert result.failures == ()
+
+
+@pytest.mark.asyncio
+async def test_explicit_sdk_source_error_is_sanitized_as_unavailable() -> None:
+    secret = "low-level-transport-secret-must-not-escape"
+    client = FakePubMedSearchClient(
+        empty_sdk_result(
+            total_available=0,
+            source_errors=[
+                {
+                    "source": "pubmed",
+                    "status": "error",
+                    "message": secret,
+                }
+            ],
+        )
+    )
+
+    result = await PubMedSearchMcpProvider(client).search(filtered_search_plan(), 2)
+
+    assert [failure.code for failure in result.failures] == [
+        ProviderFailureCode.SOURCE_UNAVAILABLE
+    ]
+    assert secret not in repr(result.failures)
+
+
 def test_factory_extracts_settings_at_sdk_config_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,3 +187,28 @@ def filtered_search_plan() -> SearchPlan:
         filters=SearchFilters(year_from=2020, year_to=2025, species=("humans",)),
         generator="deterministic",
     )
+
+
+def empty_sdk_result(
+    *,
+    total_available: int | None,
+    source_errors: list[dict[str, object]] | None = None,
+) -> UnifiedSearchResult:
+    payload = {
+        "tool": "unified_search",
+        "statistics": {"total_input": 0, "unique_articles": 0},
+        "articles": [],
+        "source_counts": [
+            {
+                "source": "pubmed",
+                "returned": 0,
+                "total_available": total_available,
+                "has_more": False,
+            }
+        ],
+        "next_tools": [],
+        "next_commands": [],
+    }
+    if source_errors is not None:
+        payload["source_errors"] = source_errors
+    return UnifiedSearchResult(raw=json.dumps(payload), output_format="json")

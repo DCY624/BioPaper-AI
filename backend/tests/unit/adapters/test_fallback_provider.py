@@ -1,8 +1,11 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
+from pubmed_search import UnifiedSearchResult
 
 from biopaper_ai.adapters.search.fallback import FallbackSearchProvider
+from biopaper_ai.adapters.search.pubmed_search_mcp import PubMedSearchMcpProvider
 from biopaper_ai.application.ports.search_provider import (
     ProviderFailure,
     ProviderFailureCode,
@@ -24,6 +27,26 @@ class StubProvider:
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+
+class UnknownEmptySdkClient:
+    async def unified_search(self, query: str, **kwargs: object) -> UnifiedSearchResult:
+        payload = {
+            "tool": "unified_search",
+            "statistics": {"total_input": 0, "unique_articles": 0},
+            "articles": [],
+            "source_counts": [
+                {
+                    "source": "pubmed",
+                    "returned": 0,
+                    "total_available": None,
+                    "has_more": False,
+                }
+            ],
+            "next_tools": [],
+            "next_commands": [],
+        }
+        return UnifiedSearchResult(raw=json.dumps(payload), output_format="json")
 
 
 @pytest.mark.asyncio
@@ -69,6 +92,26 @@ async def test_valid_empty_primary_does_not_call_fallback() -> None:
 
     assert result is primary_result
     assert fallback.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_unknown_empty_sdk_result_uses_composed_fallback() -> None:
+    fallback_result = ProviderResult(
+        papers=(paper("2"),),
+        source_counts=(SourceCount(source=SourceName.PUBMED, requested=5, returned=1),),
+    )
+    fallback = StubProvider(fallback_result)
+    provider = FallbackSearchProvider(
+        PubMedSearchMcpProvider(UnknownEmptySdkClient()),
+        fallback,
+    )
+
+    result = await provider.search(search_plan(), 5)
+
+    assert result.papers == fallback_result.papers
+    assert result.source_counts == fallback_result.source_counts
+    assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
+    assert fallback.calls == 1
 
 
 @pytest.mark.asyncio

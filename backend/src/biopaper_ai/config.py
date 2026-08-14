@@ -45,5 +45,5 @@ class Settings(BaseSettings):
             "openai_api_key_configured": self.openai_api_key is not None,
             "can_search_live": self.can_search_live,
             "model": self.model,
-            "database_url": self.database_url,
+            "database_configured": bool(self.database_url),
         }

@@ -23,6 +23,9 @@ class UnifiedSearchResultView(Protocol):
     """Narrow portion of the upstream result consumed by the adapter."""
 
     @property
+    def structured(self) -> dict[str, Any]: ...
+
+    @property
     def articles(self) -> list[dict[str, Any]]: ...
 
     @property
@@ -75,10 +78,15 @@ class PubMedSearchMcpProvider:
                 filters=_serialize_filters(plan.filters),
             )
             raw_articles = upstream.articles
-            # Access the pinned property inside the boundary even though canonical
-            # returned counts are based on records that survived local validation.
-            upstream.source_counts
+            upstream_counts = upstream.source_counts
+            upstream_structured = upstream.structured
         except Exception:
+            return _unavailable_result(limit)
+
+        if not raw_articles and not _is_confirmed_empty_pubmed_result(
+            upstream_counts,
+            upstream_structured,
+        ):
             return _unavailable_result(limit)
 
         retrieved_at = self._now()
@@ -205,6 +213,37 @@ def _required_string(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("expected a non-empty string")
     return value.strip()
+
+
+def _is_confirmed_empty_pubmed_result(
+    source_counts: object,
+    structured: object,
+) -> bool:
+    if not isinstance(structured, Mapping):
+        return False
+    source_errors = structured.get("source_errors")
+    if source_errors is not None and (
+        not isinstance(source_errors, Sequence)
+        or isinstance(source_errors, (str, bytes))
+        or bool(source_errors)
+    ):
+        return False
+    if (
+        not isinstance(source_counts, Sequence)
+        or isinstance(source_counts, (str, bytes))
+        or len(source_counts) != 1
+    ):
+        return False
+    count = source_counts[0]
+    if not isinstance(count, Mapping) or count.get("source") != "pubmed":
+        return False
+    return _is_zero_count(count.get("returned")) and _is_zero_count(
+        count.get("total_available")
+    )
+
+
+def _is_zero_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == 0
 
 
 def _unavailable_result(limit: int) -> ProviderResult:
