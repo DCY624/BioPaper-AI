@@ -30,11 +30,19 @@ PlanServiceFactory = Callable[[Settings], PlanService]
 SearchServiceFactory = Callable[[Settings], SearchService]
 
 
+class _SearchConfigurationError(Exception):
+    """Known, safe-to-display configuration problem at CLI composition."""
+
+
 def _plan_service(settings: Settings) -> PlanService:
     return PlanSearch(settings=settings)
 
 
 def _search_service(settings: Settings) -> SearchService:
+    if not settings.can_search_live:
+        raise _SearchConfigurationError(
+            "BIOPAPER_NCBI_EMAIL is required for PubMed search"
+        )
     from biopaper_ai.adapters.search.fallback import FallbackSearchProvider
     from biopaper_ai.adapters.search.native_pubmed import NativePubMedProvider
     from biopaper_ai.adapters.search.pubmed_search_mcp import (
@@ -89,7 +97,12 @@ def create_app(
             if not typer.confirm("Search this reviewed plan?"):
                 typer.echo("Search cancelled.")
                 return
-        run = asyncio.run(search_service_factory(settings).execute(plan, limit))
+        try:
+            search_service = search_service_factory(settings)
+        except _SearchConfigurationError as error:
+            typer.echo(f"Configuration error: {error}", err=True)
+            raise typer.Exit(code=1) from None
+        run = asyncio.run(search_service.execute(plan, limit))
         render_run(console, run)
         if output is not None:
             export_format = output.suffix.removeprefix(".").casefold()

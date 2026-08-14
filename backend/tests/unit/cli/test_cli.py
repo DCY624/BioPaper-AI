@@ -157,6 +157,21 @@ def test_source_failure_without_papers_exits_non_zero() -> None:
     assert "rate limited" in result.output.lower()
 
 
+def test_production_search_reports_missing_ncbi_email_without_a_traceback() -> None:
+    app = create_app()
+
+    result = RUNNER.invoke(
+        app,
+        accepted_search_args(),
+        env={"BIOPAPER_NCBI_EMAIL": ""},
+    )
+
+    assert result.exit_code == 1
+    assert "BIOPAPER_NCBI_EMAIL" in result.output
+    assert "traceback" not in result.output.casefold()
+    assert not isinstance(result.exception, ValueError)
+
+
 @pytest.mark.parametrize("suffix", ["json", "csv"])
 def test_output_path_exports_results_with_provenance(
     tmp_path: Path, suffix: str
