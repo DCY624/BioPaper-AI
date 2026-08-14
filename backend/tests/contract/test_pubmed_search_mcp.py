@@ -11,7 +11,10 @@ from biopaper_ai.adapters.search.pubmed_search_mcp import (
     PubMedSearchMcpProvider,
     create_pubmed_search_mcp_provider,
 )
-from biopaper_ai.application.ports.search_provider import ProviderFailureCode
+from biopaper_ai.application.ports.search_provider import (
+    ProviderFailure,
+    ProviderFailureCode,
+)
 from biopaper_ai.config import Settings
 from biopaper_ai.domain.provenance import SourceName
 from biopaper_ai.domain.search_plan import SearchFilters, SearchPlan, SynonymGroup
@@ -140,6 +143,37 @@ async def test_explicit_sdk_source_error_is_sanitized_as_unavailable() -> None:
         ProviderFailureCode.SOURCE_UNAVAILABLE
     ]
     assert secret not in repr(result.failures)
+
+
+@pytest.mark.asyncio
+async def test_valid_sdk_articles_preserve_a_sanitized_partial_failure() -> None:
+    secret = "partial-transport-secret-must-not-escape"
+    payload = json.loads((FIXTURES / "pubmed_search_mcp_result.json").read_text())
+    payload["articles"] = [payload["articles"][0]]
+    payload["source_counts"][0]["returned"] = 1
+    payload["source_errors"] = [
+        {
+            "source": "pubmed",
+            "operation": "search",
+            "message": f"TimeoutError carried {secret}",
+            "kind": "timeout",
+            "retryable": True,
+            "status": "error",
+        }
+    ]
+    client = FakePubMedSearchClient(
+        UnifiedSearchResult(raw=json.dumps(payload), output_format="json")
+    )
+
+    result = await PubMedSearchMcpProvider(client).search(filtered_search_plan(), 2)
+
+    assert [paper.identifiers.pmid for paper in result.papers] == ["41000001"]
+    assert len(result.failures) == 1
+    assert type(result.failures[0]) is ProviderFailure
+    assert result.failures[0].code is ProviderFailureCode.SOURCE_UNAVAILABLE
+    assert result.failures[0].message == "PubMed SDK source is unavailable"
+    assert secret not in repr(result)
+    assert "TimeoutError" not in repr(result)
 
 
 def test_factory_extracts_settings_at_sdk_config_boundary(

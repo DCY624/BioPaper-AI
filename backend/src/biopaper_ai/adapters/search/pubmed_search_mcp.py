@@ -83,6 +83,7 @@ class PubMedSearchMcpProvider:
         except Exception:
             return _unavailable_result(limit)
 
+        has_source_error = _has_source_error_signal(upstream_structured)
         if not raw_articles and not _is_confirmed_empty_pubmed_result(
             upstream_counts,
             upstream_structured,
@@ -91,7 +92,9 @@ class PubMedSearchMcpProvider:
 
         retrieved_at = self._now()
         papers: list[Paper] = []
-        failures: list[ProviderFailure] = []
+        failures: list[ProviderFailure] = (
+            [_unavailable_failure()] if has_source_error else []
+        )
         for raw_article in raw_articles:
             record_id = _candidate_pmid(raw_article)
             try:
@@ -219,14 +222,7 @@ def _is_confirmed_empty_pubmed_result(
     source_counts: object,
     structured: object,
 ) -> bool:
-    if not isinstance(structured, Mapping):
-        return False
-    source_errors = structured.get("source_errors")
-    if source_errors is not None and (
-        not isinstance(source_errors, Sequence)
-        or isinstance(source_errors, (str, bytes))
-        or bool(source_errors)
-    ):
+    if not isinstance(structured, Mapping) or _has_source_error_signal(structured):
         return False
     if (
         not isinstance(source_counts, Sequence)
@@ -246,16 +242,29 @@ def _is_zero_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value == 0
 
 
+def _has_source_error_signal(structured: object) -> bool:
+    if not isinstance(structured, Mapping):
+        return False
+    source_errors = structured.get("source_errors")
+    return source_errors is not None and (
+        not isinstance(source_errors, Sequence)
+        or isinstance(source_errors, (str, bytes))
+        or bool(source_errors)
+    )
+
+
+def _unavailable_failure() -> ProviderFailure:
+    return ProviderFailure(
+        source=SourceName.PUBMED,
+        code=ProviderFailureCode.SOURCE_UNAVAILABLE,
+        message="PubMed SDK source is unavailable",
+    )
+
+
 def _unavailable_result(limit: int) -> ProviderResult:
     return ProviderResult(
         source_counts=(
             SourceCount(source=SourceName.PUBMED, requested=limit, returned=0),
         ),
-        failures=(
-            ProviderFailure(
-                source=SourceName.PUBMED,
-                code=ProviderFailureCode.SOURCE_UNAVAILABLE,
-                message="PubMed SDK source is unavailable",
-            ),
-        ),
+        failures=(_unavailable_failure(),),
     )

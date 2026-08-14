@@ -62,6 +62,22 @@ async def test_non_empty_primary_returns_unchanged_without_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_non_empty_primary_preserves_failure_without_fallback() -> None:
+    failure = unavailable_failure()
+    primary_result = ProviderResult(papers=(paper("1"),), failures=(failure,))
+    fallback = StubProvider(ProviderResult(papers=(paper("2"),)))
+
+    result = await FallbackSearchProvider(
+        StubProvider(primary_result),
+        fallback,
+    ).search(search_plan(), 5)
+
+    assert result is primary_result
+    assert result.failures == (failure,)
+    assert fallback.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_source_unavailable_empty_primary_uses_fallback() -> None:
     failure = unavailable_failure()
     primary = StubProvider(ProviderResult(failures=(failure,)))
