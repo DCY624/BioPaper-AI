@@ -88,7 +88,11 @@ def create_app(
         output: Path | None = typer.Option(None, "--output"),
     ) -> None:
         if non_interactive and not accept_plan:
-            raise typer.BadParameter("--accept-plan is required with --non-interactive")
+            typer.echo(
+                "Error: --accept-plan is required with --non-interactive",
+                err=True,
+            )
+            raise typer.Exit(code=2)
         settings = settings_factory()
         plan = asyncio.run(plan_service_factory(settings).execute(query, use_ai))
         console = Console()

@@ -64,10 +64,15 @@ def test_non_interactive_search_requires_explicit_plan_acceptance() -> None:
     search_service = RecordingSearchService(search_run())
     app = _make_app(plan_service, search_service)
 
-    result = RUNNER.invoke(app, ["search", "probiotic", "--non-interactive"])
+    result = RUNNER.invoke(
+        app,
+        ["search", "probiotic", "--non-interactive"],
+        color=True,
+        terminal_width=40,
+    )
 
     assert result.exit_code == 2
-    assert "--accept-plan" in result.output
+    assert result.output == "Error: --accept-plan is required with --non-interactive\n"
     assert plan_service.calls == []
     assert search_service.calls == []
 
