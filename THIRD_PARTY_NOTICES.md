@@ -1,5 +1,8 @@
 # Third-Party Notices
 
+BioPaper AI itself is licensed under the MIT License. The components and
+services listed below retain their respective licenses and terms.
+
 BioPaper AI depends on
 [pubmed-search-mcp](https://pypi.org/project/pubmed-search-mcp/) version 0.6.2,
 licensed under Apache-2.0. The dependency is consumed through an adapter; its

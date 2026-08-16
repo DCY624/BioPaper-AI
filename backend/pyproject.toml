@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Trusted biomedical literature search for BioPaper AI"
 readme = {text = "# BioPaper AI\n\nTrusted biomedical literature search.", content-type = "text/markdown"}
 requires-python = ">=3.11"
-license = {text = "Apache-2.0"}
+license = {text = "MIT"}
 authors = [{name = "BioPaper AI Contributors"}]
 dependencies = [
   "pydantic>=2.12,<3",

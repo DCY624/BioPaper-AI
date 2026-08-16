@@ -137,7 +137,8 @@ assessment, meta-analysis, or clinical interpretation.
 
 The pinned `pubmed-search-mcp` adapter and other acknowledgements are documented
 in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). BioPaper AI is licensed
-under the [Apache License 2.0](LICENSE).
+under the [MIT License](LICENSE). Third-party dependencies retain their own
+licenses.
 
 BioPaper AI is a literature-search aid, not a medical device or diagnostic
 system. Its output is not medical advice and must not be used to diagnose,

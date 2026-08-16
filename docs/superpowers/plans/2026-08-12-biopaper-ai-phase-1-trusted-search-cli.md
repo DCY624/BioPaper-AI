@@ -20,7 +20,7 @@
 - Domain modules do not import FastAPI, MCP, OpenAI, HTTPX, Typer, Rich, SQLAlchemy, or pubmed_search.
 - Phase 1 excludes Web UI, MCP tools, full-text reading, evidence tables, PubTator, OpenAlex, and citation graphs.
 - Default tests are offline. Real API tests require the live marker and explicit configuration.
-- Project license is Apache-2.0; attribution belongs in THIRD_PARTY_NOTICES.md.
+- Project license is MIT; third-party attribution belongs in THIRD_PARTY_NOTICES.md.
 
 ---
 
@@ -90,7 +90,7 @@ def test_diagnostics_never_expose_secrets(monkeypatch):
 
 - [ ] **Step 2: Add package metadata and verify the test fails**
 
-backend/pyproject.toml must define Python >=3.11, Apache-2.0, the biopaper entrypoint, strict mypy, Ruff, pytest, and exact pubmed-search-mcp==0.6.2. Use an inline PEP 621 readme value for this initial package so editable installation does not depend on the root README that Task 9 creates. Runtime dependency ranges are Pydantic >=2.12,<3; pydantic-settings >=2.10,<3; HTTPX >=0.28.1,<0.29; defusedxml >=0.7.1,<0.8; Typer >=0.16,<1; Rich >=14,<15; OpenAI >=1.99,<2.
+backend/pyproject.toml must define Python >=3.11, MIT, the biopaper entrypoint, strict mypy, Ruff, pytest, and exact pubmed-search-mcp==0.6.2. Use an inline PEP 621 readme value for this initial package so editable installation does not depend on the root README that Task 9 creates. Runtime dependency ranges are Pydantic >=2.12,<3; pydantic-settings >=2.10,<3; HTTPX >=0.28.1,<0.29; defusedxml >=0.7.1,<0.8; Typer >=0.16,<1; Rich >=14,<15; OpenAI >=1.99,<2.
 
 Run:
 
@@ -110,7 +110,7 @@ Define ErrorCode string enum values source_unavailable, rate_limited, paper_not_
 
 - [ ] **Step 4: Add policy and CI files**
 
-.env.example contains blank NCBI/OpenAI keys. THIRD_PARTY_NOTICES identifies pubmed-search-mcp 0.6.2 Apache-2.0 and lists the four researched projects without claiming vendored source. LICENSE uses the unmodified Apache 2.0 text. CONTRIBUTING documents offline default tests and required contract fixtures. SECURITY tells users to report credential exposure privately and rotate keys. CODE_OF_CONDUCT uses Contributor Covenant 2.1.
+.env.example contains blank NCBI/OpenAI keys. THIRD_PARTY_NOTICES identifies pubmed-search-mcp 0.6.2 Apache-2.0 and lists the four researched projects without claiming vendored source. LICENSE uses the standard MIT License text. CONTRIBUTING documents offline default tests and required contract fixtures. SECURITY tells users to report credential exposure privately and rotate keys. CODE_OF_CONDUCT uses Contributor Covenant 2.1.
 
 CI runs on Python 3.11, 3.12, and 3.13:
 

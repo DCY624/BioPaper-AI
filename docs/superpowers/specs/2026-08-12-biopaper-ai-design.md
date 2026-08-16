@@ -42,7 +42,7 @@ MVP 不包含完整引用图、全量实验字段、付费全文绕过、医疗�
 
 采用“组合依赖，自研证据层”路线。pubmed-search-mcp 负责成熟检索能力；BioPaper AI 自己拥有检索计划、统一论文模型、实验证据 schema、原文定位、缺失值约束、中文证据表、质量评估和三个入口。
 
-项目建议使用 Apache-2.0。所有依赖和借鉴记录到 THIRD_PARTY_NOTICES.md。复制或修改 Apache-2.0 文件时保留许可证、归属及 NOTICE，并显著标记修改。
+项目使用 MIT License。所有依赖和借鉴记录到 THIRD_PARTY_NOTICES.md；Apache-2.0 第三方依赖继续保留其许可证、归属及 NOTICE 要求。
 
 ## 4. 架构
 
@@ -313,7 +313,7 @@ Web UI 包含首页、可编辑检索计划、带筛选器的论文列表、证�
 
 ## 17. 开源发布
 
-发布应包括 Apache-2.0、第三方归属、贡献指南、安全政策、行为准则、中英文 README、可复现示例、评估命令、已知限制、路线图和 contributor-friendly issues。
+发布应包括 MIT License、第三方归属、贡献指南、安全政策、行为准则、中英文 README、可复现示例、评估命令、已知限制、路线图和 contributor-friendly issues。
 
 一个月成功标准是公开仓库、可安装版本、可运行演示、至少一条贯通 CLI/插件/Web 的工作流、公开质量评估、少量真实科研用户反馈，以及诚实的 commit、issue 和维护记录。
 
